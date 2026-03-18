@@ -123,6 +123,7 @@ loadState();
 </body>
 </html>"""
 
+# NOTE: const N in INDEX_HTML JavaScript must match NUM_LEDS — update both together
 NUM_LEDS = 8
 DATA_PIN = 13
 
@@ -224,7 +225,7 @@ def connect_wifi():
 
 @app.route("/")
 async def index(request):
-    return Response(body=INDEX_HTML, headers={"Content-Type": "text/html"})
+    return Response(body=INDEX_HTML, headers={"Content-Type": "text/html; charset=utf-8"})
 
 
 @app.route("/state", methods=["GET"])
@@ -279,6 +280,7 @@ async def post_state(request):
 
 
 # Boot sequence
+apply_leds()  # clear strip immediately (all off) before WiFi connects
 connect_wifi()
 
 if load_state():
