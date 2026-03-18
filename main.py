@@ -8,6 +8,121 @@ from microdot import Microdot, Response
 
 app = Microdot()
 
+INDEX_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LED Controller</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #ccc; font-family: monospace; padding: 20px; }
+  h1 { text-align: center; letter-spacing: 3px; color: #eee; margin-bottom: 20px; font-size: 16px; }
+  #strip {
+    display: flex; gap: 8px; justify-content: center;
+    padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 20px;
+  }
+  .led-block {
+    width: 40px; height: 44px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: rgba(255,255,255,0.7); font-weight: bold;
+    background: #333; transition: background 0.2s, box-shadow 0.2s;
+  }
+  #controls { display: flex; flex-direction: column; gap: 8px; max-width: 500px; margin: 0 auto; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    background: #1a1a1a; padding: 8px 12px; border-radius: 6px;
+    border-left: 3px solid #444;
+  }
+  .row label { color: #888; font-size: 12px; width: 38px; flex-shrink: 0; }
+  .row input[type=color] { width: 32px; height: 28px; border: none; background: none; cursor: pointer; border-radius: 3px; flex-shrink: 0; }
+  .row input[type=range] { flex: 1; accent-color: #27ae60; }
+  .row .bval { color: #aaa; font-size: 11px; width: 28px; text-align: right; flex-shrink: 0; }
+  #send-area { text-align: center; margin-top: 20px; }
+  #send-btn {
+    background: #27ae60; color: white; border: none;
+    padding: 12px 48px; border-radius: 6px; font-size: 14px;
+    cursor: pointer; letter-spacing: 1px; font-family: monospace;
+  }
+  #send-btn:disabled { background: #555; cursor: default; }
+  #status { color: #555; font-size: 11px; margin-top: 6px; min-height: 16px; }
+</style>
+</head>
+<body>
+<h1>LED CONTROLLER</h1>
+<div id="strip"></div>
+<div id="controls"></div>
+<div id="send-area">
+  <button id="send-btn" onclick="sendState()">SEND</button>
+  <div id="status"></div>
+</div>
+<script>
+const N = 8;
+function hexToRgb(hex) {
+  return { r: parseInt(hex.slice(1,3),16), g: parseInt(hex.slice(3,5),16), b: parseInt(hex.slice(5,7),16) };
+}
+function rgbToHex(r,g,b) {
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+function scaledColor(r,g,b,bv) {
+  const s = bv/255;
+  return `rgb(${Math.round(r*s)},${Math.round(g*s)},${Math.round(b*s)})`;
+}
+const strip = document.getElementById('strip');
+const controls = document.getElementById('controls');
+for (let i = 0; i < N; i++) {
+  const block = document.createElement('div');
+  block.className = 'led-block'; block.id = 'block'+i; block.textContent = i+1;
+  strip.appendChild(block);
+  const row = document.createElement('div');
+  row.className = 'row'; row.id = 'row'+i;
+  row.innerHTML = `<label>LED ${i+1}</label><input type="color" id="color${i}" value="#000000" oninput="update(${i})"><input type="range" id="bright${i}" min="0" max="255" value="0" oninput="update(${i})"><span class="bval" id="bval${i}">0</span>`;
+  controls.appendChild(row);
+}
+function update(i) {
+  const hex = document.getElementById('color'+i).value;
+  const bv = parseInt(document.getElementById('bright'+i).value);
+  document.getElementById('bval'+i).textContent = bv;
+  const {r,g,b} = hexToRgb(hex);
+  const col = scaledColor(r,g,b,bv);
+  const block = document.getElementById('block'+i);
+  block.style.background = col;
+  block.style.boxShadow = bv > 0 ? `0 0 12px ${col}` : 'none';
+  document.getElementById('row'+i).style.borderLeftColor = col;
+}
+async function loadState() {
+  try {
+    const data = await (await fetch('/state')).json();
+    data.leds.forEach((led, i) => {
+      document.getElementById('color'+i).value = rgbToHex(led.r, led.g, led.b);
+      document.getElementById('bright'+i).value = led.brightness;
+      update(i);
+    });
+  } catch(e) { console.error('Failed to load state', e); }
+}
+async function sendState() {
+  const btn = document.getElementById('send-btn');
+  const status = document.getElementById('status');
+  btn.disabled = true; btn.textContent = 'Sending...'; status.textContent = '';
+  const leds = [];
+  for (let i = 0; i < N; i++) {
+    const {r,g,b} = hexToRgb(document.getElementById('color'+i).value);
+    leds.push({r, g, b, brightness: parseInt(document.getElementById('bright'+i).value)});
+  }
+  try {
+    const res = await fetch('/state', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leds}) });
+    status.textContent = res.ok ? 'Saved' : 'Error: ' + res.status;
+  } catch(e) { status.textContent = 'Error: ' + e.message; }
+  finally {
+    btn.disabled = false; btn.textContent = 'SEND';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  }
+}
+loadState();
+</script>
+</body>
+</html>"""
+
 NUM_LEDS = 8
 DATA_PIN = 13
 
@@ -105,6 +220,11 @@ def connect_wifi():
     ip = wlan.ifconfig()[0]
     print("\nWiFi connected. IP:", ip)
     return ip
+
+
+@app.route("/")
+async def index(request):
+    return Response(body=INDEX_HTML, headers={"Content-Type": "text/html"})
 
 
 @app.route("/state", methods=["GET"])
