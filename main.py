@@ -286,7 +286,8 @@ loadState();
                 headers={"Content-Type": "application/json"}
             )
 
-    uasyncio.run(app.start_server(port=80))
+    gc.collect()
+    uasyncio.run(app.start_server(host="0.0.0.0", port=8080))
 
 
 # Boot sequence
@@ -300,5 +301,5 @@ else:
 
 apply_leds()
 gc.collect()
-print("Web server starting on port 80")
+print("Web server starting on port 8080")
 start_server()
