@@ -203,6 +203,8 @@ def connect_wifi():
 
     print("Connecting to", ssid, end="")
     wlan = network.WLAN(network.STA_IF)
+    wlan.active(False)
+    time.sleep(0.5)
     wlan.active(True)
     wlan.connect(ssid, password)
 
