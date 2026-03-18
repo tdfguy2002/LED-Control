@@ -26,6 +26,30 @@ def apply_leds():
     np.write()
 
 
+def save_state():
+    """Save led_states to state.json."""
+    try:
+        with open("state.json", "w") as f:
+            json.dump({"leds": led_states}, f)
+    except Exception as e:
+        print("WARNING: could not save state:", e)
+
+
+def load_state():
+    """Load state.json into led_states. Returns True on success."""
+    global led_states
+    try:
+        with open("state.json") as f:
+            data = json.load(f)
+        leds = data.get("leds", [])
+        if len(leds) != NUM_LEDS:
+            return False
+        led_states = leds
+        return True
+    except Exception:
+        return False
+
+
 def load_wifi_config():
     """Read wifi.json. Returns (ssid, password) or raises on failure."""
     try:
@@ -75,7 +99,12 @@ def connect_wifi():
 
 
 # Boot sequence
-apply_leds()   # start with all LEDs off
 connect_wifi()
 
+if load_state():
+    print("State restored from state.json")
+else:
+    print("No state.json — all LEDs off")
+
+apply_leds()
 print("Boot complete")
