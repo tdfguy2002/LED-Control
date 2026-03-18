@@ -44,6 +44,11 @@ def load_state():
         leds = data.get("leds", [])
         if len(leds) != NUM_LEDS:
             return False
+        for led in leds:
+            if not all(k in led for k in ("r", "g", "b", "brightness")):
+                return False
+            if not all(isinstance(led[k], int) for k in ("r", "g", "b", "brightness")):
+                return False
         led_states = leds
         return True
     except Exception:
