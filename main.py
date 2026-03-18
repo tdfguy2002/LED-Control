@@ -208,7 +208,7 @@ def handle_request(conn):
     try:
         req = b""
         while b"\r\n\r\n" not in req:
-            chunk = conn.read(256)
+            chunk = conn.recv(256)
             if not chunk:
                 break
             req += chunk
@@ -226,7 +226,7 @@ def handle_request(conn):
             if line.lower().startswith("content-length:"):
                 cl = int(line.split(":", 1)[1].strip())
                 while len(body) < cl:
-                    body += conn.read(cl - len(body))
+                    body += conn.recv(cl - len(body))
                 break
 
         if method == "GET" and path == "/":
