@@ -133,6 +133,8 @@ INDEX_HTML = b"""<!DOCTYPE html>
   #send-area { text-align: center; margin-top: 20px; }
   #send-btn { background: #27ae60; color: white; border: none; padding: 12px 48px; border-radius: 6px; font-size: 14px; cursor: pointer; letter-spacing: 1px; font-family: monospace; }
   #send-btn:disabled { background: #555; cursor: default; }
+  #reset-btn { background: #333; color: #aaa; border: 1px solid #555; padding: 12px 28px; border-radius: 6px; font-size: 14px; cursor: pointer; letter-spacing: 1px; font-family: monospace; margin-left: 10px; }
+  #reset-btn:hover { background: #444; }
   #status { color: #555; font-size: 11px; margin-top: 6px; min-height: 16px; }
 </style>
 </head>
@@ -142,6 +144,7 @@ INDEX_HTML = b"""<!DOCTYPE html>
 <div id="controls"></div>
 <div id="send-area">
   <button id="send-btn" onclick="sendState()">SEND</button>
+  <button id="reset-btn" onclick="resetAll()">RESET</button>
   <div id="status"></div>
 </div>
 <script>
@@ -186,6 +189,16 @@ async function sendState() {
     status.textContent=res.ok?'Saved':'Error: '+res.status;
   } catch(e) { status.textContent='Error: '+e.message; }
   finally { btn.disabled=false; btn.textContent='SEND'; setTimeout(()=>{status.textContent='';},3000); }
+}
+async function resetAll() {
+  const leds=Array.from({length:N},()=>({r:0,g:0,b:0,brightness:0}));
+  const status=document.getElementById('status');
+  try {
+    const res=await fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({leds})});
+    if(res.ok){ for(let i=0;i<N;i++){document.getElementById('color'+i).value='#000000';document.getElementById('bright'+i).value=0;update(i);} status.textContent='Reset'; }
+    else { status.textContent='Error: '+res.status; }
+  } catch(e) { status.textContent='Error: '+e.message; }
+  setTimeout(()=>{status.textContent='';},3000);
 }
 loadState();
 </script>
