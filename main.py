@@ -41,7 +41,7 @@ def load_wifi_config():
 
 
 def connect_wifi():
-    """Connect to WiFi. On failure, set all LEDs dim red and halt."""
+    """Connect to WiFi. On failure, sets all LEDs dim red and halts — never returns."""
     try:
         ssid, password = load_wifi_config()
     except RuntimeError as e:
