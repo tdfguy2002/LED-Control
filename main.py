@@ -119,18 +119,31 @@ async def get_state(request):
 async def post_state(request):
     try:
         data = request.json
-        leds = data.get("leds", [])
-        if len(leds) != NUM_LEDS:
+        if data is None:
             return Response(
-                body=json.dumps({"error": "expected 8 leds"}),
+                body=json.dumps({"error": "invalid or missing JSON body"}),
                 status_code=400,
                 headers={"Content-Type": "application/json"}
             )
-        for i, led in enumerate(leds):
-            led_states[i]["r"] = int(led["r"])
-            led_states[i]["g"] = int(led["g"])
-            led_states[i]["b"] = int(led["b"])
-            led_states[i]["brightness"] = int(led["brightness"])
+        leds = data.get("leds", [])
+        if len(leds) != NUM_LEDS:
+            return Response(
+                body=json.dumps({"error": "expected " + str(NUM_LEDS) + " leds"}),
+                status_code=400,
+                headers={"Content-Type": "application/json"}
+            )
+        # Validate all entries before mutating any state
+        validated = []
+        for led in leds:
+            entry = {}
+            for key in ("r", "g", "b", "brightness"):
+                v = int(led[key])
+                if not 0 <= v <= 255:
+                    raise ValueError(key + " out of range: " + str(v))
+                entry[key] = v
+            validated.append(entry)
+        for i, entry in enumerate(validated):
+            led_states[i].update(entry)
         apply_leds()
         save_state()
         return Response(
