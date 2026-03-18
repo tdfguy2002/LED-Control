@@ -1,30 +1,30 @@
 # ESP32 WS2812 LED Controller — Design Spec
 
 **Date:** 2026-03-18
-**Platform:** ESP32-WROOM-32, PlatformIO, Arduino framework
+**Platform:** ESP32-WROOM-32, MicroPython
 **Hardware:** 8x WS2812 LEDs on GPIO 13 (labeled D13 on the physical board)
 
 ---
 
 ## Overview
 
-A web-connected LED controller running on an ESP32. Each of the 8 LEDs is individually controllable via color and brightness through a browser-based UI. State persists across reboots. WiFi credentials are stored in an editable config file on the ESP32 filesystem.
+A web-connected LED controller running MicroPython on an ESP32. Each of the 8 LEDs is individually controllable via color and brightness through a browser-based UI. State persists across reboots. WiFi credentials are stored in an editable config file on the ESP32 filesystem.
 
 ---
 
 ## Architecture
 
 ```
-ESP32 (Arduino framework via PlatformIO)
+ESP32 (MicroPython firmware)
 │
-├── FastLED → GPIO 13 (DATA_PIN = 13) → WS2812 strip (8 LEDs)
+├── neopixel module → GPIO 13 → WS2812 strip (8 LEDs)
 │
-├── LittleFS (ESP32 filesystem)
+├── Filesystem (MicroPython built-in)
 │   ├── wifi.json     ← user edits to set WiFi credentials
-│   └── state.json    ← auto-saved on every Send, restored on boot
+│   └── state.json    ← auto-saved on every Send, created at runtime
 │
-└── ESPAsyncWebServer (port 80)
-    ├── GET  /        → serves the web UI (HTML embedded as PROGMEM string in main.cpp)
+└── microdot web server (port 80)
+    ├── GET  /        → serves the web UI (HTML embedded in main.py)
     ├── GET  /state   → returns current LED state as JSON
     └── POST /state   → receives new LED state JSON, applies to strip, saves to filesystem
 ```
@@ -36,31 +36,45 @@ ESP32 (Arduino framework via PlatformIO)
 | Parameter | Value |
 |-----------|-------|
 | Board | ESP32-WROOM-32 (pins labeled Dnn; D13 = GPIO 13) |
-| DATA_PIN | 13 (integer, used in FastLED `#define DATA_PIN 13`) |
+| Data pin | GPIO 13 (integer) |
 | LED strip | WS2812, 8 LEDs |
-| Framework | Arduino (via PlatformIO) |
+| Runtime | MicroPython |
 
 ---
 
 ## File Structure
 
 ```
-LED Control/
-├── platformio.ini
-├── src/
-│   └── main.cpp          ← firmware + HTML/CSS/JS as PROGMEM string
-└── data/
-    └── wifi.json         ← uploaded to LittleFS via "Upload Filesystem Image"
+LED Control/           ← project directory (files uploaded to ESP32 root)
+├── main.py            ← all logic: WiFi, web server, LED control, HTML
+├── wifi.json          ← WiFi credentials (uploaded once, edit to change)
+└── (state.json)       ← created at runtime on first POST /state
 ```
 
-Note: the web UI HTML is embedded in `main.cpp` as a PROGMEM string, not served from LittleFS. The `data/` directory contains only `wifi.json`. `state.json` is not uploaded — it is created and updated at runtime by the firmware each time a successful POST `/state` is processed.
+All files live at the root of the ESP32 filesystem. `main.py` runs automatically on boot.
+
+---
+
+## Upload Workflow
+
+```bash
+# Install mpremote (once)
+pip install mpremote
+
+# Upload files to ESP32
+mpremote cp main.py :main.py
+mpremote cp wifi.json :wifi.json
+
+# Monitor serial output
+mpremote
+```
 
 ---
 
 ## Data Formats
 
-### `data/wifi.json`
-Uploaded once to the ESP32 filesystem via PlatformIO's "Upload Filesystem Image" task. Edit this file to change WiFi credentials.
+### `wifi.json`
+Edit locally, upload to ESP32 root via `mpremote cp wifi.json :wifi.json`.
 
 ```json
 {
@@ -69,7 +83,7 @@ Uploaded once to the ESP32 filesystem via PlatformIO's "Upload Filesystem Image"
 }
 ```
 
-### LED State (GET `/state` response body, POST `/state` request body, and `state.json` on filesystem)
+### LED State (GET `/state` response, POST `/state` request body, `state.json` on filesystem)
 
 ```json
 {
@@ -86,8 +100,9 @@ Uploaded once to the ESP32 filesystem via PlatformIO's "Upload Filesystem Image"
 }
 ```
 
-- `r`, `g`, `b`: 0–255, **raw unscaled color values** — stored and transmitted as-is
-- `brightness`: 0–255 — applied via `leds[i].nscale8(brightness)` at LED write time only, never pre-baked into r/g/b
+- `r`, `g`, `b`: 0–255, **raw unscaled color values**
+- `brightness`: 0–255 — applied by scaling r/g/b at write time: `val = int(channel * brightness / 255)`
+- `state.json` is not uploaded — it is created and updated at runtime by `main.py` on every successful POST `/state`
 
 ---
 
@@ -103,7 +118,7 @@ Uploaded once to the ESP32 filesystem via PlatformIO's "Upload Filesystem Image"
 
 ## Web UI
 
-Dark-themed single-page app. HTML/CSS/JS embedded as a PROGMEM `const char[]` string in `main.cpp`.
+Dark-themed single-page app. HTML/CSS/JS embedded as a string constant in `main.py`, served from memory.
 
 **Layout (Strip View):**
 - Header: "LED CONTROLLER" title
@@ -118,47 +133,47 @@ Dark-themed single-page app. HTML/CSS/JS embedded as a PROGMEM `const char[]` st
 - On page load: fetches `GET /state` and populates all controls
 
 **Send button behavior:**
-- Disabled and shows "Sending…" while a POST is in flight, preventing concurrent requests
-- Re-enabled on response (success or error)
-- On success: brief "Saved" confirmation text
-- On error: brief "Error" text
-
-**Client-side only updates:**
-Color picker and brightness slider update the strip visualization and border color in real time with no server round-trip. The server is only contacted on Send.
+- Disabled and shows "Sending…" while a POST is in flight
+- Re-enabled on response; shows "Saved" or "Error"
+- Status text clears after 3 seconds
 
 ---
 
-## Firmware Boot Sequence
+## Firmware Boot Sequence (`main.py`)
 
-1. Mount LittleFS — if mount fails, print error to Serial and halt
-2. Read `wifi.json` — if missing or malformed, print error to Serial and halt
-3. Connect to WiFi with 10-second timeout
-   - On success: print IP address to Serial
-   - On failure (timeout/wrong credentials): print error to Serial; set all LEDs to dim red as visual indicator; do **not** start web server; halt in loop (LEDs stay red)
-4. Read `state.json` if it exists → restore LED state and apply to strip
-5. If `state.json` doesn't exist → all LEDs off
-6. Start ESPAsyncWebServer, register routes
-7. Enter main loop (no polling needed — async server handles requests via callbacks)
+1. Import modules: `network`, `neopixel`, `machine`, `json`, `uasyncio`, `microdot`
+2. Initialize NeoPixel strip on GPIO 13, 8 LEDs
+3. Read `wifi.json` — if missing or malformed: print error to REPL and halt
+4. Connect to WiFi with 10-second timeout
+   - On success: print IP address to REPL
+   - On failure: set all LEDs to dim red (10, 0, 0); halt in infinite loop
+5. Read `state.json` if it exists → restore LED state and apply to strip
+6. If `state.json` missing → all LEDs off
+7. Start microdot web server on port 80
+8. Run uasyncio event loop
 
 ---
 
-## Dependencies (`platformio.ini`)
+## Dependencies
 
-```ini
-[env:esp32dev]
-platform = espressif32
-board = esp32dev
-framework = arduino
-board_build.filesystem = littlefs
-board_build.partitions = min_spiffs.csv
-lib_deps =
-    fastled/FastLED
-    me-no-dev/ESPAsyncWebServer
-    me-no-dev/AsyncTCP
-    bblanchon/ArduinoJson
-```
+- `neopixel` — built into MicroPython, no install needed
+- `network` — built into MicroPython ESP32 firmware
+- `json` — built into MicroPython
+- `uasyncio` — built into MicroPython
+- `microdot` — install once on the device:
+  ```bash
+  mpremote mip install microdot
+  ```
 
-`min_spiffs.csv` allocates ~1.5MB for the filesystem, which is sufficient for `wifi.json` and `state.json`.
+---
+
+## Prerequisites (One-Time Setup)
+
+1. Flash MicroPython firmware to ESP32:
+   - Download from https://micropython.org/download/ESP32_GENERIC/
+   - Flash: `esptool.py --chip esp32 --port <PORT> erase_flash && esptool.py --chip esp32 --port <PORT> write_flash -z 0x1000 ESP32_GENERIC-xxx.bin`
+2. Install mpremote: `pip install mpremote`
+3. Install microdot on device: `mpremote mip install microdot`
 
 ---
 
