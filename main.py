@@ -1,3 +1,4 @@
+import gc
 import network
 import neopixel
 import machine
@@ -203,8 +204,12 @@ def connect_wifi():
 
     print("Connecting to", ssid, end="")
     wlan = network.WLAN(network.STA_IF)
-    wlan.active(False)
-    time.sleep(0.5)
+    try:
+        wlan.active(False)
+        time.sleep(0.5)
+    except Exception:
+        pass
+    gc.collect()
     wlan.active(True)
     wlan.connect(ssid, password)
 
